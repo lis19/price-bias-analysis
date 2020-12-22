@@ -1,0 +1,194 @@
+---
+title: "Identifying the Presence of Price Bias in Wine Ratings"
+author: "Lisa Oh"
+date: "21/12/2020"
+output: pdf_document
+---
+Supporting code is available at: https://github.com/lis19/price-bias-analysis
+
+```{r setup, include=FALSE}
+rm(list=ls())
+library(broom)
+library(tidyverse)
+```
+
+# Abstract
+This paper investigates whether knowledge of price introduces bias towards wine in consumers. Specifically, the presence of an expectation of a higher priced wine to be better quality and better tasting is examined by a Difference-in-Differences analysis and a linear model. The results of the analysis show that consumers rate a wine higher if they know the wine is sold at a high price. <br>
+
+## Keywords
+Difference in Differences, Causal Inference, Parallel Trends Assumption, Wine, Price, Bias
+
+# 1. Introduction
+When acquiring goods and services, it is a common expectation that a higher price tag indicates higher quality. This expectation can be towards a range of purchases, ranging from goods such as apparel or food, to services such as education or medical care. Unfortunately, for a consumer, it is difficult to assess the true quality of a purchase because the necessary information is seldom readily accessible.  A study by Gerstner reports that, in general, the relationship between quality and price is product-specific and weak (1985). Gerstner also notes that these results were similar to the findings of five other empirical analyses. Altogether, these studies convey the need to explore the price-quality relationship at a product level. 
+
+The product of interest in this paper is wine. Wine is prone to price bias because of the social connotations associated with wine; to middle and upper class consumers, wine consumption is viewed as a practice for social distinction and such consumers are willing to purchase higher priced wine for social distinction (Beckert et al., 2016). Therefore, we want to identify whether possessing knowledge of price in a blind wine tasting introduces bias in the wine ratings. This would show whether consumers hold an expectation of “higher price indicates higher quality” towards wine.
+
+To identify the presence of price bias, a Difference-in-Differences (DID) analysis will be performed. DID is a standard way to evaluate interventions (Cunningham, 2020), and in this case the intervention is knowledge of wine price.  DID produces an unbiased estimate of the effects of the intervention (Cunningham, 2020); thus the results of this report could give rise to consumer awareness or help wine producers improve their retailing strategies.
+
+The wine ratings from two blind tastings will form the data set for the analysis. In the Methodology section (Section 2), the data and DID framework are described in more detail. Results of the analysis are provided in the Results section (Section 3), and the final Discussion section (Section 4) elaborates further on the results along with discussion about implications and weaknesses.
+
+
+# 2. Methodology
+## 2.1 Data
+The data for this study was simulated. It consists of ratings on a 1-10 scale of the same wine product on two separate days (Day 0 and Day 1) from 500 individuals. On Day 1, an individual is either given or not given a high retail price of the wine (\$95) prior to their tasting. This thereby separates the 500 individuals into treatment and control groups respectively. It consists of a total of 1000 wine ratings which were simulated from the normal distribution with means ($\mu$) varying depending on the day and the treatment group. Table 1 below specifies the means chosen for this simulation.
+
+```{r Simulation Table, echo=FALSE}
+set.seed(292)
+simulation_table <- tibble(Day=c(0,1,0,1),
+                           Trt = c("Control","Control","Treatment","Treatment"),
+                           mu = c(6,7,6,9))
+
+simulation_table <- simulation_table %>% 
+  knitr::kable(caption = "Means Chosen for Data Simulation", 
+               col.names = (c("Day", "Treatment Group", "$\\mu$")))
+
+simulation_table
+```
+
+As Table 1 shows, values of $\mu$ were much higher on the second day for the treatment group. This was designed to enforce a greater likelihood of price bias. This increase in mean is also justified by previous studies which convey a price bias in wine (Beckert et al., 2016). Furthermore, the normal distribution was chosen because it has higher frequency of data near the mean, ensuring that the wine ratings are mostly close to the specified $\mu$ values. All ratings from both days and the sizes of each treatment group are presented in Figure 1.
+
+
+```{r Simulate Data, echo=FALSE}
+# Parts of the following code are adapted from code on https://www.tellingstorieswithdata.com/06-03-matching_and_differences.html. Below are details of the code.
+# Author: Rohan Alexander
+# Title: Running Through a Difference-in-Differences Example
+# Date: 5 November 2020
+set.seed(292)
+n=500
+ratings_data <- tibble(person = rep(c(1:n), times = 2),
+                       day = c(rep(0, times = n), rep(1, times = n)),
+                       treatment_group = 
+                         rep(sample(x = 0:1, size  = n, replace = TRUE), times = 2)
+)
+
+ratings_data <- 
+  ratings_data %>% 
+  rowwise() %>% 
+  mutate(wine_rating = case_when(
+    day == 0 & treatment_group == 0 ~ rnorm(n = 1, mean = 6, sd = 0.5),
+    day == 1 & treatment_group == 0 ~ rnorm(n = 1, mean = 7, sd = 0.5),
+    day == 0 & treatment_group == 1 ~ rnorm(n = 1, mean = 6, sd = 0.5),
+    day == 1 & treatment_group == 1 ~ rnorm(n = 1, mean = 9, sd = 0.5))) %>%
+  mutate(wine_rating = ifelse(wine_rating > 10, 10, wine_rating))
+
+ratings_data$treatment_group <-
+  as.factor(ratings_data$treatment_group)
+
+trt_group_size <- ratings_data %>% 
+  group_by(treatment_group) %>% count()
+ctrl_size <- trt_group_size$n[1]
+trt_size <- trt_group_size$n[2]
+
+levels(ratings_data$treatment_group)[levels(ratings_data$treatment_group)=="0"] <- sprintf("Control (%s)",ctrl_size)
+levels(ratings_data$treatment_group)[levels(ratings_data$treatment_group)=="1"] <- sprintf("Treatment (%s)",trt_size)
+
+ratings_data$day <- 
+  as.factor(ratings_data$day)
+
+ratings_data %>% 
+  ggplot(aes(x = day,
+             y = wine_rating,
+             color = treatment_group)) +
+  geom_point() +
+  geom_line(aes(group = person), alpha = 0.2) +
+  theme_minimal() +
+  labs(title = "\n\nFigure 1: Wine Ratings From Simulated Blind Tastings", 
+       x = "Day",
+       y = "Wine Rating",
+       color = "Treatment Group") +
+  scale_color_brewer(palette = "Set1") + 
+  theme(plot.title = element_text(face = "bold"))
+```
+
+For this data set, the target population is all wine consumers of wine. The frame population consists of all simulated wine consumers from the normal distributions, and sample consists of 500 wine consumers who are represented by the 500 simulated ratings. Simulation and analysis are carried out with the help of R packages `broom` and `tidyverse`.
+
+## 2.2 Model
+Obtaining a representative sample of wine ratings from individuals would be an expensive experiment. Fortunately, Difference-in-Differences (DID) is a standard way to evaluate interventions (Cunningham, 2020) in which we identify groups that were similar before treatment and hence attribute any difference to the treatment (Alexander, 2020). In this paper a DID analysis will be carried out. The key identifying assumption in the DID method is the parallel trends assumption, which states that in the absence of the treatment, we can expect the differences to be consistent (Cunningham, 2020). For our data, the parallel trends assumption is met because if the price of the wine is not told, it is reasonable to expect ratings to be consistent on both days since the same product of wine is used on both days. As well, Figure 1 shows the blue lines and red lines are approximately parallel which further satisfies the assumption.
+
+Let $\textit{E}$ represent the having knowledge of the wine price. Since the parallel trends assumption is met, we attribute the calculated difference in differences as the effect of $\textit{E}$ as such:
+$$ E[\delta] = E[R^1 - R^0]  $$
+where  $\delta$ is the difference in differences, $R^1$ is the wine ratings in a world where the tasters know the price and $R^0$ is the wine ratings in a world where the tasters do not know the price, at the exact same moment in time. 
+
+Moreover, the difference in differences will be estimated using the following linear model by ordinary least squares regression:
+$$Y_{i,t} = \beta_0 + \beta_1*D_i + \beta_2*P_t + \beta_3*(D_i * P_t)_{i,t} + \epsilon_{i,t}$$
+where $D_i$ is a dummy variable for whether the individual is part of the treatment group and $P_t$ is a dummy variable for the day. Dummy variables are used because they represent categorical data easily and have numeric values which are necessary for a regression model. The estimate of $\beta_3$ is of interest because it is the coefficient for the interaction between treatment group and day and our goal is to observe whether wine rating will depend on whether price is known or not.
+
+
+# 3. Results
+The results of the DID analysis are presented in Table 2. The average difference in wine ratings between the two days is approximately 3 points for the treatment group and approximately 1 point for the control group. 
+```{r DID Analysis, echo=FALSE, warnings=FALSE}
+# Parts of the following code are adapted from code on https://www.tellingstorieswithdata.com/06-03-matching_and_differences.html. Below are details of the code.
+# Author: Rohan Alexander
+# Title: Running Through a Difference-in-Differences Example
+# Date: 5 November 2020
+set.seed(292)
+options(dplyr.summarise.inform = FALSE)
+ratings_data <- ratings_data %>%
+  mutate(wine_rating = round(wine_rating))
+
+average_differences <- 
+  ratings_data %>% 
+  pivot_wider(names_from = day,
+              values_from = wine_rating,
+              names_prefix = "day_") %>% 
+  mutate(difference = day_1 - day_0) %>% 
+  group_by(treatment_group) %>% 
+  summarise(average_difference = mean(difference))
+
+Diffs <- ratings_data %>% 
+  group_by(treatment_group, day) %>% 
+  summarise(mean_rating = mean(wine_rating))
+DID <- average_differences$average_difference[2] -
+  average_differences$average_difference[1]
+
+DID_table <- tibble(Group=c("Treatment", "Control"),
+                    `Day 0`= c(Diffs$mean_rating[3], Diffs$mean_rating[1]),
+                    `Day 1`= c(Diffs$mean_rating[4], Diffs$mean_rating[2]),
+                    `Difference` = c(average_differences$average_difference[2], average_differences$average_difference[1])) %>%
+  knitr::kable(caption = "Difference in Average Wine Ratings")
+
+DID_table
+```
+
+Altogether, the average difference in differences of wine ratings is 3.035156 - 1.028688 = 2.006468, or approximately 2 points. As well, a summary of the fitted linear model can be found in Table 3 below.
+
+```{r OLS Model, echo=FALSE, warnings=FALSE}
+ratings_regression <- lm(wine_rating ~ treatment_group*day, data = ratings_data)
+ratings_regression %>%
+  broom::tidy() %>%
+  mutate(term = c("Intercept", "Treatment Group (Yes)","Day 1","Treatment Group (Yes):Day 1")) %>%
+  knitr::kable(caption = "Summary of Linear Model")
+```
+
+First, we notice that the interaction term is statistically significant due to its extremely low p-value. This tells us that the effect of the remaining two predictors cannot be shown through this model, but this is not our concern because we are focused on the effect of the treatment between the two days. Furthermore, we estimate there to be an additional increase in wine rating by 2.0064677 if a wine rating is from the second day and a treatment group. This estimate of $\beta_3$ is identical to the average difference in differences computed in the DID analysis above. This model also has an $R^2$ value of about 0.84, which indicates that the model is very good at explaining the variability of the wine ratings around its mean.
+
+# 4. Discussion
+## 4.1 Summary
+In this paper, wine ratings out of 10 were recorded from two simulated blind tastings. In this simulation, members of the treatment group were told a high price tag of the wine on the second day, while members of the control group were not given such knowledge. A Difference-in-Differences analysis was carried out on this data to obtain the causal effect of the treatment on wine ratings. The DID method was appropriate because it is a standard method of evaluating interventions and the key assumption, the parallel trends assumption, was satisfied.  A linear model was also employed to approximate the difference in wine ratings through an alternative method. Both methods indicated a causal effect of the treatment.
+
+## 4.2 Conclusion
+Both the Difference-in-Differences analysis and linear model showed that the average difference in wine ratings of the same product was 2 two points higher on a 10-point scale if the subject was told the price of the wine. In other words, knowing the price of the wine increased expectation of the wine taste. Based off this result, it appears as though price bias does exist for wine, which supports the findings of many other studies (Beckert et al., 2016).
+
+## 4.3 Weaknesses and Next Steps
+In theory, Difference-in-Differences is useful if we want to infer one factor as the sole cause for a difference. However, it is not a perfect method and may present causality when it is not the case. By carrying out analyses in this paper, we assumed that there were no other variables that affected the wine ratings. This is most likely not the case and yet we did not account for many potentially significant variables that are important predictors for identifying whether price introduces bias towards wine. Individuals have varying experience with wine; their familiarity can depend on factors such as gender, age group, and purchasing behavior. There could also be wine experts in the sample and individuals may have personal bias from preferring specific types of wine. Moreover, as noted in the Introduction, there are social connotations associated with wine. Therefore socioeconomic factors such as education and income are highly likely to be important predictors. Another weakness is the data set. By simulating the data from a normal distribution, we are assuming that the groups follow this distribution. Although normal distributions are often assumed for unknown distributions, this may not be the case, especially because we decided on specific values for mean and standard deviation of the distribution. As well, although literature review of price bias in wine supported our decision in simulating higher ratings in treatment groups, there was no basis upon which the actual magnitude of difference in ratings was chosen.
+
+Assuming that the data is readily available, a key next step would be a linear regression model with much more predictors. Apart from the suggested variables above, another potential variable is ethnicity because attitudes towards wine differ by culture. A model with socioeconomic factors, demographic factors, and factors related to wine consumption would tell us the most about the presence of price bias towards wine. Furthermore, an interesting study would be whether wine price triggers the brain to expect higher taste quality or enhance the tasting experience itself. Finally, a different step could be investigating whether the effect holds in the opposite direction using a low priced wine and calculating how great the difference in differences is if it holds. Then a conclusion can be made about consumer biases against cheaper wines, which further strengthens the presence of price bias in wine.
+
+
+
+\newpage
+# References
+
+Alexander, R. (2020, November 5). Difference in differences. Retrieved December 21, 2020, from https://www.tellingstorieswithdata.com/06-03-matching_and_differences.html
+
+Beckert, J., Rössel, J., &amp; Schenk, P. (2016). Wine as a Cultural Product: Symbolic Capital and Price Formation in the Wine Field. Sociological Perspectives, 60(1), 206-222. doi:10.1177/0731121416629994
+
+Cunningham, S. (n.d.). Causal Inference: The Mixtape. Retrieved December 21, 2020, from http://www.scunning.com/causalinference_norap.pdf
+
+Gerstner, E. (1985). Do Higher Prices Signal Higher Quality? Journal of Marketing Research, 22(2), 209. doi:10.2307/3151366
+
+Robinson et al., (n.d.). Convert Statistical Objects into Tidy Tibbles. Retrieved December 21, 2020, from https://broom.tidymodels.org/
+
+Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+
+
