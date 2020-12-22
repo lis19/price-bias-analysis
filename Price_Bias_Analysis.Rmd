@@ -100,7 +100,7 @@ ratings_data %>%
   theme(plot.title = element_text(face = "bold"))
 ```
 
-For this data set, the target population is all wine consumers of wine. The frame population consists of all simulated wine consumers from the normal distributions, and sample consists of 500 wine consumers who are represented by the 500 simulated ratings. Simulation and analysis are carried out with the help of R packages `broom` and `tidyverse`.
+For this data set, the target population is all consumers of wine. The frame population consists of all simulated wine consumers from the normal distributions, and sample consists of 500 wine consumers who are represented by the 500 simulated ratings. Simulation and analysis are carried out with the help of R packages `broom` and `tidyverse`.
 
 ## 2.2 Model
 Obtaining a representative sample of wine ratings from individuals would be an expensive experiment. Fortunately, Difference-in-Differences (DID) is a standard way to evaluate interventions (Cunningham, 2020) in which we identify groups that were similar before treatment and hence attribute any difference to the treatment (Alexander, 2020). In this paper a DID analysis will be carried out. The key identifying assumption in the DID method is the parallel trends assumption, which states that in the absence of the treatment, we can expect the differences to be consistent (Cunningham, 2020). For our data, the parallel trends assumption is met because if the price of the wine is not told, it is reasonable to expect ratings to be consistent on both days since the same product of wine is used on both days. As well, Figure 1 shows the blue lines and red lines are approximately parallel which further satisfies the assumption.
